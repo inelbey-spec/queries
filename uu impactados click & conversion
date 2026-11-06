@@ -1,0 +1,51 @@
+WITH clientes_cordoba_santafe AS (
+SELECT DISTINCT client_id, provincia
+FROM `teco-prod-ds-ppay-199b.Clientes.parque_onbordeados`
+WHERE provincia IN ('Córdoba', 'Santa Fe')
+),
+
+push_por_cliente AS (
+SELECT
+client_id,
+MAX(CASE WHEN send_flg AND NOT undelivered_flg THEN 1 ELSE 0 END) AS entregado,
+MAX(CASE WHEN open_flg THEN 1 ELSE 0 END) AS abrio,
+MAX(CASE WHEN flag_trafico = 1 THEN 1 ELSE 0 END) AS genero_trafico,
+MAX(CASE WHEN client_convertion IS NOT NULL THEN 1 ELSE 0 END) AS convirtio
+FROM `teco-prod-ds-ppay-199b.agus_r.interacciones_conversion_componentes_cu_PROD_v2`
+WHERE elemento_nombre = 'PPAY_Adopcion_PDS_TX-PDS-NO-TECO_push_SinFC_Nuevos_sem1_AR'
+AND send_flg = TRUE
+GROUP BY client_id
+),
+
+base AS (
+SELECT
+c.provincia,
+p.*
+FROM clientes_cordoba_santafe c
+JOIN push_por_cliente p ON p.client_id = c.client_id
+)
+
+SELECT
+provincia,
+COUNT(DISTINCT client_id) AS usuarios_enviados,
+COUNTIF(entregado = 1) AS usuarios_entregados,
+COUNTIF(abrio = 1) AS usuarios_que_abrieron,
+COUNTIF(genero_trafico = 1) AS usuarios_con_trafico,
+COUNTIF(convirtio = 1) AS usuarios_convirtieron,
+SAFE_DIVIDE(COUNTIF(abrio = 1), COUNTIF(entregado = 1)) AS open_rate,
+SAFE_DIVIDE(COUNTIF(genero_trafico = 1), COUNTIF(entregado = 1)) AS traffic_rate
+FROM base
+GROUP BY provincia
+
+UNION ALL
+
+SELECT
+Total (Córdoba + Santa Fe)' AS provincia,
+COUNT(DISTINCT client_id) AS usuarios_enviados,
+COUNTIF(entregado = 1) AS usuarios_entregados,
+COUNTIF(abrio = 1) AS usuarios_que_abrieron,
+COUNTIF(genero_trafico = 1) AS usuarios_con_trafico,
+COUNTIF(convirtio = 1) AS usuarios_convirtieron,
+SAFE_DIVIDE(COUNTIF(abrio = 1), COUNTIF(entregado = 1)) AS open_rate,
+SAFE_DIVIDE(COUNTIF(genero_trafico = 1), COUNTIF(entregado = 1)) AS traffic_rate
+FROM base;

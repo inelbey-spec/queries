@@ -1,0 +1,27 @@
+WITH clientes_cordoba_santafe AS (
+  SELECT DISTINCT client_id, provincia
+  FROM `teco-prod-ds-ppay-199b.Clientes.parque_onbordeados`
+  WHERE provincia IN ('Córdoba', 'Santa Fe')
+),
+
+conversiones_push AS (
+  SELECT DISTINCT client_id
+  FROM `teco-prod-ds-ppay-199b.agus_r.interacciones_conversion_componentes_cu_PROD_v2`
+  WHERE elemento_nombre = 'PPAY_Adopcion_PDS_TX-PDS-NO-TECO_push_SinFC_Nuevos_sem1_AR'
+    AND client_convertion IS NOT NULL
+)
+
+SELECT
+  c.provincia,
+  COUNT(DISTINCT c.client_id) AS usuarios_convirtieron
+FROM clientes_cordoba_santafe c
+JOIN conversiones_push p ON p.client_id = c.client_id
+GROUP BY c.provincia
+
+UNION ALL
+
+SELECT
+  'Total (Córdoba + Santa Fe)' AS provincia,
+  COUNT(DISTINCT c.client_id) AS usuarios_convirtieron
+FROM clientes_cordoba_santafe c
+JOIN conversiones_push p ON p.client_id = c.client_id;

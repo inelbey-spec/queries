@@ -1,0 +1,76 @@
+WITH pagadores AS (
+
+  SELECT DISTINCT client_id
+  FROM `teco-prod-ds-ppay-199b.Nuevo_Modelo.ft_mix_transaccional`
+  WHERE mes = '2026-10-01'
+    AND TPN_PDST > 0
+
+),
+
+comms AS (
+
+  SELECT
+    client_id,
+    tipo_estrategia,
+    COALESCE(componente_nomenclado, elemento_nombre) AS componente,
+
+    MAX(CASE
+          WHEN interaction_id IS NOT NULL THEN 1
+          ELSE 0
+        END) AS recibio,
+
+    MAX(CAST(impacto_valido AS INT64)) AS interactuo,
+
+    MAX(CASE
+          WHEN client_convertion IS NOT NULL THEN 1
+          ELSE 0
+        END) AS convirtio
+
+  FROM `teco-prod-ds-ppay-199b.agus_r.interacciones_conversion_componentes_cu_PROD_v2`
+  WHERE creacion_fecha_dt BETWEEN '2026-10-01' AND '2026-10-31'
+    AND palanca = 'Pago Servicios Teco' -- (Pago Servicios No Teco, Solicita Prestamo, Solicita Microcredito, Pago TJ-QR-NFC, Recarga Celular)
+  GROUP BY 1,2,3
+
+),
+
+base AS (
+
+  SELECT COUNT(DISTINCT client_id) AS pagadores
+  FROM pagadores
+
+)
+
+SELECT
+  c.tipo_estrategia,
+  c.componente,
+  b.pagadores,
+
+  COUNT(DISTINCT c.client_id) AS recibieron_comms,
+
+  COUNT(DISTINCT IF(c.interactuo = 1, c.client_id, NULL))
+    AS interactuaron,
+
+  COUNT(DISTINCT IF(c.convirtio = 1, c.client_id, NULL))
+    AS convirtieron,
+
+  SAFE_DIVIDE(
+    COUNT(DISTINCT c.client_id),
+    b.pagadores
+  ) AS pct_recibieron,
+
+  SAFE_DIVIDE(
+    COUNT(DISTINCT IF(c.interactuo = 1, c.client_id, NULL)),
+    COUNT(DISTINCT c.client_id)
+  ) AS pct_interaccion,
+
+  SAFE_DIVIDE(
+    COUNT(DISTINCT IF(c.convirtio = 1, c.client_id, NULL)),
+    COUNT(DISTINCT c.client_id)
+  ) AS pct_conversion
+
+FROM pagadores p
+JOIN comms c
+  ON p.client_id = c.client_id
+CROSS JOIN base b
+GROUP BY 1,2,3
+ORDER BY recibieron_comms DESC;

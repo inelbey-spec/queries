@@ -1,0 +1,42 @@
+WITH push_recibida AS (
+SELECT
+client_id,
+MIN(creacion_fecha_dt) AS fecha_push,
+MAX(CASE WHEN send_flg AND NOT undelivered_flg THEN 1 ELSE 0 END) AS entregado,
+MAX(CASE WHEN impacto_valido = 1 THEN 1 ELSE 0 END) AS impacto_valido
+FROM `teco-prod-ds-ppay-199b.agus_r.interacciones_conversion_componentes_cu_PROD_v2`
+WHERE elemento_nombre = 'PPAY_Adopcion_Pago_PAGO-TJ-QR-NFC_push_COTO_NO_TJ_Supermercados_AR_F2'
+GROUP BY client_id
+),
+virtual_card_activation AS (
+SELECT
+c.client_id,
+t.fecha_activacion
+FROM `teco-prod-edw-5e1b.ue4_ppay_pub.dm_fintech_clients_vw` c
+JOIN `teco-prod-edw-5e1b.ue4_ppay_pub.dm_application_user_vw` u ON c.client_id = u.user_id
+JOIN `teco-prod-edw-5e1b.ue4_ppay_pub.dm_cuenta_vw` cu ON u.cuenta_owner = cu.objectid
+JOIN `teco-prod-edw-5e1b.ue4_ppay_pub.dm_cuenta_tarjeta_vw` ct ON cu.objectid = ct.cuenta_owner
+JOIN `teco-prod-edw-5e1b.ue4_ppay_pub.dm_cuenta_tarjeta_habiente` cth ON ct.objectid = cth.cuenta_tarjeta
+JOIN `teco-prod-edw-5e1b.ue4_ppay_pub.dm_tarjeta_vw` t ON cth.objectid = t.cuenta_tarjeta_habiente
+WHERE t.fecha_activacion IS NOT NULL
+AND t.tipo_tarjeta = 'VIR'
+AND t.mercado = 'AR'
+AND c.mercado IN ('AR', '')
+),
+conversion_tarjeta_virtual AS (
+SELECT DISTINCT p.client_id
+FROM push_recibida p
+JOIN virtual_card_activation v ON v.client_id = p.client_id
+WHERE p.impacto_valido = 1
+AND v.fecha_activacion BETWEEN p.fecha_push AND DATE_ADD(p.fecha_push, INTERVAL 2 DAY)
+)
+SELECT
+COUNT(DISTINCT p.client_id) AS usuarios_enviados,
+COUNT(DISTINCT IF(p.entregado = 1, p.client_id, NULL)) AS usuarios_entregados,
+COUNT(DISTINCT IF(p.impacto_valido = 1 AND c.client_id IS NOT NULL, p.client_id, NULL)) AS usuarios_activaron_tj_virtual,
+SAFE_DIVIDE(
+COUNT(DISTINCT IF(p.impacto_valido = 1 AND c.client_id IS NOT NULL, p.client_id, NULL)),
+COUNT(DISTINCT IF(p.entregado = 1, p.client_id, NULL))
+) AS cr
+FROM push_recibida p
+LEFT JOIN conversion_tarjeta_virtual c ON c.client_id = p.client_id;
